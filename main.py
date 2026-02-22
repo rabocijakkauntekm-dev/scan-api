@@ -2,7 +2,7 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import Response
 import cv2
 import numpy as np
-from reportlab.platypus import SimpleDocTemplate, Image
+from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 import io
 from typing import List
@@ -13,20 +13,18 @@ app = FastAPI()
 async def scan(files: List[UploadFile] = File(...)):
 
     pdf_buffer = io.BytesIO()
-    doc = SimpleDocTemplate(pdf_buffer, pagesize=A4)
+    c = canvas.Canvas(pdf_buffer, pagesize=A4)
 
-    elements = []
+    width, height = A4
 
-    for file in files:
-        contents = await file.read()
+    for uploaded_file in files:
+        contents = await uploaded_file.read()
         nparr = np.frombuffer(contents, np.uint8)
         image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        blur = cv2.GaussianBlur(gray, (5, 5), 0)
-
         scan = cv2.adaptiveThreshold(
-            blur,
+            gray,
             255,
             cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
             cv2.THRESH_BINARY,
@@ -37,13 +35,18 @@ async def scan(files: List[UploadFile] = File(...)):
         _, img_buffer = cv2.imencode(".jpg", scan)
 
         img_stream = io.BytesIO(img_buffer.tobytes())
-        img = Image(img_stream)
-        img.drawHeight = A4[1]
-        img.drawWidth = A4[0]
 
-        elements.append(img)
+        c.drawImage(
+            img_stream,
+            0,
+            0,
+            width=width,
+            height=height
+        )
 
-    doc.build(elements)
+        c.showPage()
+
+    c.save()
 
     return Response(
         content=pdf_buffer.getvalue(),
